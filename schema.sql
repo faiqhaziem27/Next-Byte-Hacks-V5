@@ -30,5 +30,12 @@ CREATE TABLE order_items (
     FOREIGN KEY (item_id)  REFERENCES items (id)
 );
 
+CREATE TABLE customer_balances (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    customer_name TEXT NOT NULL UNIQUE,
+    balance       REAL NOT NULL DEFAULT 0 CHECK (balance >= 0),
+    updated_at    TIMESTAMP NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+
 CREATE INDEX idx_orders_created ON orders (created_at);
 CREATE INDEX idx_order_items_order ON order_items (order_id);

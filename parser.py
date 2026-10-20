@@ -1,10 +1,10 @@
 
-from ollama import chat
+from ollama import ResponseError, chat
 from pydantic import BaseModel, Field
 from typing import Literal
 
 # The Ollama model
-MODEL = "qwen3:4b-instruct"
+MODEL = "qwen3.5:4b"
 
 
 class OrderItem(BaseModel):
@@ -77,7 +77,10 @@ OTHER RULES:
 
     order_data = result.model_dump()
 
-    # Format required by Developer 1
+    payment_status = result.customer_payment_claim
+    if payment_status == "Unknown":
+        payment_status = "Unpaid"
+
     formatted_order = {
         "customer_name": order_data["customer"],
         "items": [
@@ -87,7 +90,7 @@ OTHER RULES:
             }
             for item in order_data["order"]
         ],
-        "payment_status": "Pending"
+        "payment_status": payment_status
     }
 
     return formatted_order

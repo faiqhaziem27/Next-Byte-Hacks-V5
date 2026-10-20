@@ -33,6 +33,27 @@ def init_db():
         conn.close()
 
 
+def ensure_db():
+    """Create missing tables without deleting existing data."""
+    with open(SCHEMA_PATH, 'r', encoding='utf-8') as f:
+        script = f.read()
+    statements = []
+    for statement in script.split(';'):
+        statement = statement.strip()
+        if not statement or statement.startswith('PRAGMA') or statement.startswith('DROP TABLE'):
+            continue
+        statement = statement.replace('CREATE TABLE ', 'CREATE TABLE IF NOT EXISTS ', 1)
+        statement = statement.replace('CREATE INDEX ', 'CREATE INDEX IF NOT EXISTS ', 1)
+        statements.append(statement)
+
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.executescript(';\n'.join(statements))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def get_all_items():
     """Inventory list. Each dict has: id, name, stock, price, low_stock (bool)."""
     conn = get_connection()
@@ -54,6 +75,114 @@ def get_low_stock_count():
     finally:
         conn.close()
     return int(row[0])
+
+
+def get_customer_balances():
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT customer_name, balance, updated_at "
+            "FROM customer_balances ORDER BY customer_name"
+        ).fetchall()
+    finally:
+        conn.close()
+    return [dict(row) for row in rows]
+
+
+def add_customer_balance(customer_name, amount):
+    customer = str(customer_name or '').strip()
+    if not customer:
+        return False, "Customer name is required."
+    try:
+        value = round(float(amount), 2)
+    except (TypeError, ValueError):
+        return False, "Amount must be a valid number."
+    if value <= 0:
+        return False, "Amount must be greater than RM 0.00."
+
+    conn = get_connection()
+    try:
+        with conn:
+            conn.execute(
+                "INSERT INTO customer_balances (customer_name, balance) VALUES (?, ?) "
+                "ON CONFLICT(customer_name) DO UPDATE SET "
+                "balance = balance + excluded.balance, "
+                "updated_at = datetime('now', 'localtime')",
+                (customer, value),
+            )
+        return True, f"RM {value:.2f} added to {customer}'s balance."
+    except sqlite3.Error as error:
+        return False, f"Database error: {error}"
+    finally:
+        conn.close()
+
+
+def mark_order_paid(order_id):
+    try:
+        order_id = int(order_id)
+    except (TypeError, ValueError):
+        return False, "Order ID is not valid."
+
+    conn = get_connection()
+    try:
+        with conn:
+            order = conn.execute(
+                "SELECT status FROM orders WHERE id = ?", (order_id,)
+            ).fetchone()
+            if order is None:
+                return False, "Order not found."
+            if order['status'] == 'Paid':
+                return False, "Order is already paid."
+            conn.execute("UPDATE orders SET status = 'Paid' WHERE id = ?", (order_id,))
+        return True, f"Order #{order_id} marked as paid."
+    except sqlite3.Error as error:
+        return False, f"Database error: {error}"
+    finally:
+        conn.close()
+
+
+def pay_order_from_balance(order_id):
+    try:
+        order_id = int(order_id)
+    except (TypeError, ValueError):
+        return False, "Order ID is not valid."
+
+    conn = get_connection()
+    try:
+        with conn:
+            order = conn.execute(
+                "SELECT customer_name, total_price, status FROM orders WHERE id = ?",
+                (order_id,),
+            ).fetchone()
+            if order is None:
+                return False, "Order not found."
+            if order['status'] == 'Paid':
+                return False, "Order is already paid."
+
+            balance = conn.execute(
+                "SELECT id, balance FROM customer_balances "
+                "WHERE lower(customer_name) = lower(?)",
+                (order['customer_name'],),
+            ).fetchone()
+            if balance is None:
+                return False, f"No balance found for {order['customer_name']}."
+            if balance['balance'] < order['total_price']:
+                return False, (
+                    f"{order['customer_name']} has RM {balance['balance']:.2f}; "
+                    f"the order costs RM {order['total_price']:.2f}."
+                )
+
+            conn.execute(
+                "UPDATE customer_balances SET balance = balance - ?, "
+                "updated_at = datetime('now', 'localtime') WHERE id = ?",
+                (order['total_price'], balance['id']),
+            )
+            conn.execute("UPDATE orders SET status = 'Paid' WHERE id = ?", (order_id,))
+        return True, f"Order #{order_id} paid from {order['customer_name']}'s balance."
+    except sqlite3.Error as error:
+        return False, f"Database error: {error}"
+    finally:
+        conn.close()
 
 
 def get_recent_orders(limit=20):

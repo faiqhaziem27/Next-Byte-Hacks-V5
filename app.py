@@ -1,9 +1,15 @@
-from flask import Flask, request, render_template, redirect, url_for
+import os
+
+from flask import Flask, flash, request, render_template, redirect, url_for
 
 import analytics
 import db
+from ollama import ResponseError
+from parser import parse_order_with_ai
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY', 'local-development-key')
+db.ensure_db()
 
 @app.route('/')
 def index():
@@ -16,39 +22,35 @@ def index():
         weekly_trend=analytics.get_weekly_trend(),
         recent_orders=db.get_recent_orders(),
         low_stock_count=db.get_low_stock_count(),
+        customer_balances=db.get_customer_balances(),
     )
 
 @app.route('/inventory')
 def inventory():
     items = db.get_all_items()
+    low = [item for item in items if item['low_stock']]
     return render_template(
         'inventory.html',
         items=items,
         inventory=items,
+        low=low,
         low_stock_count=db.get_low_stock_count(),
     )
 
 @app.route('/add_order', methods=['POST'])
 def add_order():
     raw_text = request.form.get("order_text", "").strip()
-    item_name = request.form.get("item_name", "").strip()
 
     if not raw_text:
         return "Order text is required.", 400
-    if not item_name:
-        return "Item name is required.", 400
 
-    # Mock data only
-    parsed_data = {
-        "customer_name": request.form.get("customer_name", "Walk-in"),
-        "items": [
-            {
-                "name": item_name,
-                "quantity": request.form.get("quantity", 1),
-            }
-        ],
-        "payment_status": request.form.get("payment_status", "Unpaid"),
-    }
+    try:
+        parsed_data = parse_order_with_ai(raw_text)
+    except ValueError as error:
+        return f"Could not parse order: {error}", 400
+    except ResponseError as error:
+        app.logger.exception("Ollama order parsing failed")
+        return f"Could not parse order with Ollama: {error}", 502
 
     success, message = db.save_order(parsed_data)
 
@@ -56,6 +58,32 @@ def add_order():
         return f"Error: {message}", 400
 
     return redirect(url_for("index"))
+
+
+@app.route('/add_balance', methods=['POST'])
+def add_balance():
+    success, message = db.add_customer_balance(
+        request.form.get("customer_name"),
+        request.form.get("amount"),
+    )
+    if not success:
+        return message, 400
+    return redirect(url_for("index"))
+
+
+@app.route('/mark_paid/<int:order_id>', methods=['POST'])
+def mark_paid(order_id):
+    success, message = db.mark_order_paid(order_id)
+    flash(message, 'success' if success else 'danger')
+    return redirect(url_for("index"))
+
+
+@app.route('/pay_from_balance/<int:order_id>', methods=['POST'])
+def pay_from_balance(order_id):
+    success, message = db.pay_order_from_balance(order_id)
+    flash(message, 'success' if success else 'danger')
+    return redirect(url_for("index"))
+
 
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
