@@ -1,0 +1,111 @@
+<form method="post" action="{{ url_for('add_order') }}" class="panel mb-4">
+  <h2 class="h4 mb-1">Add an order</h2>
+  <p class="text-secondary mb-3">Paste the WhatsApp message, then fill in the details. Soon the AI will read the message and fill them in for you.</p>
+  <label for="order_text" class="form-label fw-semibold">WhatsApp message</label>
+  <textarea id="order_text" name="order_text" class="form-control mb-3" rows="3" required
+            placeholder="Ali nak 2 teh tarik dengan 1 nasi lemak, dah bayar"></textarea>
+
+  <!-- TEMPORARY: these fields exist because app.py still uses mock data.
+       Delete this row once the AI parser (parser.py) is connected. -->
+  <div class="row g-2 mb-3">
+    <div class="col-sm-6 col-lg-3">
+      <label for="customer_name" class="form-label">Customer</label>
+      <input id="customer_name" name="customer_name" class="form-control" placeholder="Walk-in">
+    </div>
+    <div class="col-sm-6 col-lg-3">
+      <label for="item_name" class="form-label">Item</label>
+      <input id="item_name" name="item_name" class="form-control" required placeholder="Teh Tarik">
+    </div>
+    <div class="col-6 col-lg-3">
+      <label for="quantity" class="form-label">Quantity</label>
+      <input id="quantity" name="quantity" type="number" min="1" value="1" class="form-control" required>
+    </div>
+    <div class="col-6 col-lg-3">
+      <label for="payment_status" class="form-label">Payment</label>
+      <select id="payment_status" name="payment_status" class="form-select">
+        <option value="Paid">Paid</option>
+        <option value="Unpaid">Unpaid</option>
+      </select>
+    </div>
+  </div>
+  <button type="submit" class="btn btn-stall">Save order</button>
+</form>
+
+<div class="row g-3 mb-4">
+  <div class="col-6 col-lg-3"><div class="panel h-100">
+    <div class="text-secondary small">Sales today</div>
+    <div class="stat-num">RM {{ "%.2f"|format(revenue_today|default(0)) }}</div>
+  </div></div>
+  <div class="col-6 col-lg-3"><div class="panel h-100">
+    <div class="text-secondary small">Orders today</div>
+    <div class="stat-num">{{ todays_order_count|default(0) }}</div>
+  </div></div>
+  <div class="col-6 col-lg-3"><div class="panel h-100">
+    <div class="text-secondary small">Still unpaid</div>
+    <div class="stat-num" style="color:var(--sambal)">RM {{ "%.2f"|format(unpaid_total|default(0)) }}</div>
+  </div></div>
+  <div class="col-6 col-lg-3"><div class="panel h-100">
+    <div class="text-secondary small">Items low on stock</div>
+    <div class="stat-num" {% if low_stock_count %}style="color:var(--sambal)"{% endif %}>{{ low_stock_count|default(0) }}</div>
+    {% if low_stock_count %}<a href="{{ url_for('inventory') }}" class="small">See which items</a>{% endif %}
+  </div></div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-lg-8"><div class="panel h-100">
+    <h2 class="h5">Sales in the last 7 days</h2>
+    <div style="height:240px"><canvas id="weeklyChart"></canvas></div>
+  </div></div>
+  <div class="col-lg-4"><div class="panel h-100">
+    <h2 class="h5">Best sellers</h2>
+    <ul class="list-group list-group-flush">
+      {% for s in best_selling_items %}
+        <li class="list-group-item d-flex justify-content-between px-0">
+          <span>{{ s.item_name }}</span><span class="fw-semibold">{{ s.quantity }} sold</span>
+        </li>
+      {% else %}
+        <li class="list-group-item px-0 text-secondary">No paid orders yet.</li>
+      {% endfor %}
+    </ul>
+  </div></div>
+</div>
+
+<div class="panel">
+  <h2 class="h5">Recent orders</h2>
+  <div class="table-responsive">
+    <table class="table align-middle mb-0">
+      <thead><tr><th>#</th><th>When</th><th>Customer</th><th>Items</th><th class="text-end">Total</th><th>Status</th></tr></thead>
+      <tbody>
+        {% for o in recent_orders %}
+        <tr>
+          <td>{{ o.id }}</td>
+          <td class="text-nowrap">{{ o.created_at[5:16] }}</td>
+          <td>{{ o.customer_name }}</td>
+          <td>{{ o.items_text }}</td>
+          <td class="text-end text-nowrap">RM {{ "%.2f"|format(o.total_price) }}</td>
+          <td><span class="badge {{ 'badge-paid' if o.status == 'Paid' else 'badge-unpaid' }}">{{ o.status }}</span></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="text-center text-secondary py-4">No orders yet. Paste your first WhatsApp order above.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+  const trend = {{ weekly_trend|default({'dates': [], 'revenues': []})|tojson }};
+  new Chart(document.getElementById('weeklyChart'), {
+    type: 'bar',
+    data: {
+      labels: trend.dates.map(d => d.slice(5)),
+      datasets: [{ label: 'Sales (RM)', data: trend.revenues, backgroundColor: '#0F5257' }]
+    },
+    options: { maintainAspectRatio: false, plugins: { legend: { display: false } },
+               scales: { y: { beginAtZero: true } } }
+  });
+</script>
+{% endblock %}

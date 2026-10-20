@@ -1,0 +1,24 @@
+<h1 class="h3 mb-1">Inventory</h1>
+<p class="text-secondary mb-4">
+  {% if low %}{{ low|length }} item{{ 's' if low|length != 1 }} running low. Restock before the next rush.
+  {% else %}Everything is well stocked.{% endif %}
+</p>
+
+<div class="panel p-0 table-responsive">
+  <table class="table align-middle mb-0">
+    <thead><tr><th>Item</th><th class="text-end">Price</th><th class="text-end">In stock</th><th></th></tr></thead>
+    <tbody>
+      {% for item in items %}
+      <tr class="{{ 'low-row' if item.low_stock }}">
+        <td class="fw-semibold">{{ item.name }}</td>
+        <td class="text-end">RM {{ "%.2f"|format(item.price) }}</td>
+        <td class="text-end">{{ item.stock }}</td>
+        <td class="text-end">{% if item.low_stock %}<span class="badge badge-unpaid">Low stock</span>{% endif %}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="text-center text-secondary py-4">No items yet. Run seed_data.py to add the menu.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
