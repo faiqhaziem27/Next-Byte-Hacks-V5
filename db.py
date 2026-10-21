@@ -7,11 +7,41 @@ Tables:
 """
 import os
 import sqlite3
+from difflib import SequenceMatcher
+import re
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'stall.db')
 SCHEMA_PATH = os.path.join(BASE_DIR, 'schema.sql')
 LOW_STOCK_THRESHOLD = 10
+SHORT_FORMS = {
+    'th': 'teh',
+    'lm': 'lemak',
+    'chkn': 'chicken',
+    'ckn': 'chicken',
+    'gor': 'goreng',
+    'bdg': 'bandung',
+    'cnai': 'canai',
+    'tr': 'tarik',
+    'sp': 'special',
+}
+
+
+def _normalize_item_name(name):
+    words = re.sub(r'\s+', ' ', name.casefold()).strip().split()
+    return ' '.join(SHORT_FORMS.get(word, word) for word in words)
+
+
+def _matches_abbreviation(abbreviation, item_name):
+    input_words = _normalize_item_name(abbreviation).split()
+    item_words = _normalize_item_name(item_name).split()
+    if not input_words or len(input_words) > len(item_words):
+        return False
+    return all(
+        (len(input_word) >= 2 or (len(input_words) > 1 and len(input_word) == 1))
+        and item_word.startswith(input_word)
+        for input_word, item_word in zip(input_words, item_words[:len(input_words)])
+    )
 
 
 def get_connection():
@@ -67,6 +97,91 @@ def get_all_items():
     return items
 
 
+def add_item(name, stock, price):
+    name = str(name or '').strip()
+    if not name:
+        return False, "Item name is required."
+    try:
+        stock = int(stock)
+        price = round(float(price), 2)
+    except (TypeError, ValueError):
+        return False, "Stock must be a whole number and price must be a number."
+    if stock < 0 or price < 0:
+        return False, "Stock and price cannot be negative."
+
+    conn = get_connection()
+    try:
+        with conn:
+            conn.execute(
+                "INSERT INTO items (name, stock, price) VALUES (?, ?, ?)",
+                (name, stock, price),
+            )
+        return True, f"{name} was added to the menu."
+    except sqlite3.IntegrityError:
+        return False, f"An item named '{name}' already exists."
+    except sqlite3.Error as error:
+        return False, f"Database error: {error}"
+    finally:
+        conn.close()
+
+
+def update_item(item_id, name, stock, price):
+    try:
+        item_id = int(item_id)
+        stock = int(stock)
+        price = round(float(price), 2)
+    except (TypeError, ValueError):
+        return False, "Item ID, stock, and price must be valid numbers."
+    name = str(name or '').strip()
+    if not name:
+        return False, "Item name is required."
+    if stock < 0 or price < 0:
+        return False, "Stock and price cannot be negative."
+
+    conn = get_connection()
+    try:
+        with conn:
+            cursor = conn.execute(
+                "UPDATE items SET name = ?, stock = ?, price = ? WHERE id = ?",
+                (name, stock, price, item_id),
+            )
+            if cursor.rowcount == 0:
+                return False, "Item not found."
+        return True, f"{name} was updated."
+    except sqlite3.IntegrityError:
+        return False, f"An item named '{name}' already exists."
+    except sqlite3.Error as error:
+        return False, f"Database error: {error}"
+    finally:
+        conn.close()
+
+
+def delete_item(item_id):
+    try:
+        item_id = int(item_id)
+    except (TypeError, ValueError):
+        return False, "Item ID is not valid."
+
+    conn = get_connection()
+    try:
+        with conn:
+            item = conn.execute(
+                "SELECT name FROM items WHERE id = ?", (item_id,)
+            ).fetchone()
+            if item is None:
+                return False, "Item not found."
+            conn.execute(
+                "UPDATE order_items SET item_id = NULL WHERE item_id = ?",
+                (item_id,),
+            )
+            conn.execute("DELETE FROM items WHERE id = ?", (item_id,))
+        return True, f"{item['name']} was deleted from the menu."
+    except sqlite3.Error as error:
+        return False, f"Database error: {error}"
+    finally:
+        conn.close()
+
+
 def get_low_stock_count():
     conn = get_connection()
     try:
@@ -75,46 +190,6 @@ def get_low_stock_count():
     finally:
         conn.close()
     return int(row[0])
-
-
-def get_customer_balances():
-    conn = get_connection()
-    try:
-        rows = conn.execute(
-            "SELECT customer_name, balance, updated_at "
-            "FROM customer_balances ORDER BY customer_name"
-        ).fetchall()
-    finally:
-        conn.close()
-    return [dict(row) for row in rows]
-
-
-def add_customer_balance(customer_name, amount):
-    customer = str(customer_name or '').strip()
-    if not customer:
-        return False, "Customer name is required."
-    try:
-        value = round(float(amount), 2)
-    except (TypeError, ValueError):
-        return False, "Amount must be a valid number."
-    if value <= 0:
-        return False, "Amount must be greater than RM 0.00."
-
-    conn = get_connection()
-    try:
-        with conn:
-            conn.execute(
-                "INSERT INTO customer_balances (customer_name, balance) VALUES (?, ?) "
-                "ON CONFLICT(customer_name) DO UPDATE SET "
-                "balance = balance + excluded.balance, "
-                "updated_at = datetime('now', 'localtime')",
-                (customer, value),
-            )
-        return True, f"RM {value:.2f} added to {customer}'s balance."
-    except sqlite3.Error as error:
-        return False, f"Database error: {error}"
-    finally:
-        conn.close()
 
 
 def mark_order_paid(order_id):
@@ -135,50 +210,6 @@ def mark_order_paid(order_id):
                 return False, "Order is already paid."
             conn.execute("UPDATE orders SET status = 'Paid' WHERE id = ?", (order_id,))
         return True, f"Order #{order_id} marked as paid."
-    except sqlite3.Error as error:
-        return False, f"Database error: {error}"
-    finally:
-        conn.close()
-
-
-def pay_order_from_balance(order_id):
-    try:
-        order_id = int(order_id)
-    except (TypeError, ValueError):
-        return False, "Order ID is not valid."
-
-    conn = get_connection()
-    try:
-        with conn:
-            order = conn.execute(
-                "SELECT customer_name, total_price, status FROM orders WHERE id = ?",
-                (order_id,),
-            ).fetchone()
-            if order is None:
-                return False, "Order not found."
-            if order['status'] == 'Paid':
-                return False, "Order is already paid."
-
-            balance = conn.execute(
-                "SELECT id, balance FROM customer_balances "
-                "WHERE lower(customer_name) = lower(?)",
-                (order['customer_name'],),
-            ).fetchone()
-            if balance is None:
-                return False, f"No balance found for {order['customer_name']}."
-            if balance['balance'] < order['total_price']:
-                return False, (
-                    f"{order['customer_name']} has RM {balance['balance']:.2f}; "
-                    f"the order costs RM {order['total_price']:.2f}."
-                )
-
-            conn.execute(
-                "UPDATE customer_balances SET balance = balance - ?, "
-                "updated_at = datetime('now', 'localtime') WHERE id = ?",
-                (order['total_price'], balance['id']),
-            )
-            conn.execute("UPDATE orders SET status = 'Paid' WHERE id = ?", (order_id,))
-        return True, f"Order #{order_id} paid from {order['customer_name']}'s balance."
     except sqlite3.Error as error:
         return False, f"Database error: {error}"
     finally:
@@ -213,7 +244,45 @@ def _find_item(conn, name):
         return row
     rows = conn.execute("SELECT * FROM items WHERE lower(name) LIKE ?",
                         (f"%{name.lower()}%",)).fetchall()
-    return rows[0] if len(rows) == 1 else None
+    if len(rows) == 1:
+        return rows[0]
+
+    normalized_name = _normalize_item_name(name)
+    candidates = conn.execute("SELECT * FROM items").fetchall()
+    abbreviation_matches = [
+        row for row in candidates
+        if _matches_abbreviation(name, row['name'])
+    ]
+    if len(abbreviation_matches) == 1:
+        return abbreviation_matches[0]
+
+    normalized_matches = [
+        row for row in candidates
+        if _normalize_item_name(row['name']) == normalized_name
+        or _normalize_item_name(row['name']).startswith(f"{normalized_name} ")
+    ]
+    if len(normalized_matches) == 1:
+        return normalized_matches[0]
+
+    scored = sorted(
+        (
+            (
+                SequenceMatcher(
+                    None,
+                    normalized_name,
+                    _normalize_item_name(row['name']),
+                ).ratio(),
+                row,
+            )
+            for row in candidates
+        ),
+        key=lambda entry: entry[0],
+        reverse=True,
+    )
+    if scored and scored[0][0] >= 0.86:
+        if len(scored) == 1 or scored[0][0] - scored[1][0] >= 0.04:
+            return scored[0][1]
+    return None
 
 
 def save_order(parsed):

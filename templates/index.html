@@ -12,35 +12,6 @@
 </form>
 
 <div class="row g-3 mb-4">
-  <div class="col-lg-5"><form method="post" action="{{ url_for('add_balance') }}" class="panel h-100">
-    <h2 class="h4 mb-1">Add customer credit</h2>
-    <p class="text-secondary mb-3">Add money to a customer's stored balance.</p>
-    <label for="customer_name" class="form-label fw-semibold">Customer</label>
-    <input id="customer_name" name="customer_name" class="form-control mb-2" required placeholder="Ali">
-    <label for="amount" class="form-label fw-semibold">Amount (RM)</label>
-    <input id="amount" name="amount" type="number" min="0.01" step="0.01" class="form-control mb-3" required placeholder="10.00">
-    <button type="submit" class="btn btn-stall">Add money</button>
-  </form></div>
-  <div class="col-lg-7"><div class="panel h-100">
-    <h2 class="h4 mb-3">Customer balances</h2>
-    {% if customer_balances %}
-    <div class="table-responsive">
-      <table class="table align-middle mb-0">
-        <thead><tr><th>Customer</th><th class="text-end">Balance</th></tr></thead>
-        <tbody>
-        {% for balance in customer_balances %}
-          <tr><td>{{ balance.customer_name }}</td><td class="text-end">RM {{ "%.2f"|format(balance.balance) }}</td></tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% else %}
-    <p class="text-secondary mb-0">No customer balances yet.</p>
-    {% endif %}
-  </div></div>
-</div>
-
-<div class="row g-3 mb-4">
   <div class="col-6 col-lg-3"><div class="panel h-100">
     <div class="text-secondary small">Sales today</div>
     <div class="stat-num">RM {{ "%.2f"|format(revenue_today|default(0)) }}</div>
@@ -98,9 +69,6 @@
             <div class="mt-2 d-flex gap-1">
               <form method="post" action="{{ url_for('mark_paid', order_id=o.id) }}">
                 <button type="submit" class="btn btn-sm btn-outline-success">Mark paid</button>
-              </form>
-              <form method="post" action="{{ url_for('pay_from_balance', order_id=o.id) }}">
-                <button type="submit" class="btn btn-sm btn-outline-primary">Use balance</button>
               </form>
             </div>
             {% endif %}

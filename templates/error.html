@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Unable to complete request - Stall Manager{% endblock %}
+{% block content %}
+<div class="panel text-center py-5">
+  <div class="display-1 fw-bold" style="color:var(--sambal)">{{ status_code }}</div>
+  <h1 class="h3">We could not complete that request</h1>
+  <p class="text-secondary mb-4">{{ message }}</p>
+  <a href="{{ url_for('index') }}" class="btn btn-stall">Back to dashboard</a>
+</div>
+{% endblock %}
