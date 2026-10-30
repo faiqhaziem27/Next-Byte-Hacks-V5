@@ -1,6 +1,6 @@
-# Stall Manager
+# Stall-Manager
 
-Stall Manager is a small web app we built for **Next Byte Hacks V5** to help food stall owners keep track of orders.
+Stall-Manager is a small web app we built for **Next Byte Hacks V5** to help food stall owners keep track of orders.
 
 Running a stall is busy. Orders come in fast, people ask in Malay, English, or a mix of both, and it's easy to lose track of who paid and what's left in stock. With Stall Manager, you just type the order the way you'd say it, like `Nama Ali, 2 nasi lemak ayam and 1 teh ais, dah bayar`, and the app works out the rest.
 
