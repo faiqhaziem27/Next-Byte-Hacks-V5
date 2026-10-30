@@ -24,6 +24,7 @@ SHORT_FORMS = {
     'cnai': 'canai',
     'tr': 'tarik',
     'sp': 'special',
+    'nsi': 'nasi',
 }
 
 
